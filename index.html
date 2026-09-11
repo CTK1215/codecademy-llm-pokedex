@@ -1,12 +1,133 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-	<meta charset="UTF-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<link rel="stylesheet" href="style.css">
-	<title> Pokedex</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pokédex</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-	<script src="app.js"></script>
+  <header class="site-header">
+    <div class="brand">
+      <span class="pokeball" aria-hidden="true"></span>
+      <h1>Pokédex</h1>
+    </div>
+
+    <nav class="view-tabs" aria-label="Views">
+      <button type="button" class="tab is-active" data-view="search" aria-pressed="true">Search</button>
+      <button type="button" class="tab" data-view="explore" aria-pressed="false">Explore</button>
+    </nav>
+
+    <button type="button" id="team-toggle" class="team-toggle" aria-expanded="false" aria-controls="team-dock">
+      Team <span id="team-count" class="count">0</span>
+    </button>
+  </header>
+
+  <main id="main" data-view="search">
+
+    <!-- Search view -->
+    <section id="search-view" class="view" aria-labelledby="search-heading">
+      <h2 id="search-heading" class="visually-hidden">Search</h2>
+
+      <form id="search-form" class="search-form" role="search" autocomplete="off">
+        <label for="search-input" class="search-label">Search by name or Pokédex number</label>
+        <div class="search-row">
+          <input
+            id="search-input"
+            type="text"
+            name="query"
+            placeholder="pikachu or 25"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded="false"
+            aria-controls="suggestions"
+          >
+          <button type="submit" id="search-button" class="btn btn-primary">Search</button>
+        </div>
+        <ul id="suggestions" class="suggestions" role="listbox" aria-label="Suggestions" hidden></ul>
+      </form>
+
+      <div class="controls">
+        <button type="button" id="random-button" class="btn">Random</button>
+        <button type="button" id="prev-button" class="btn" disabled>Previous</button>
+        <button type="button" id="next-button" class="btn" disabled>Next</button>
+        <button type="button" id="compare-button" class="btn" disabled>Compare</button>
+      </div>
+
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <div id="error" class="error" role="alert" hidden></div>
+
+      <section id="pokemon-display" class="display" aria-live="polite" aria-busy="false">
+        <div class="empty-state">
+          <span class="pokeball pokeball-lg" aria-hidden="true"></span>
+          <h2>Who are you looking for?</h2>
+          <p>Search any Pokémon by name or number, like <strong>charizard</strong> or <strong>6</strong>, or hit Random.</p>
+        </div>
+      </section>
+
+      <section id="evolution" class="evolution" aria-labelledby="evolution-heading" hidden>
+        <h2 id="evolution-heading">Evolution</h2>
+        <div id="evolution-chain" class="evolution-chain"></div>
+      </section>
+
+      <section id="recent" class="recent" aria-labelledby="recent-heading" hidden>
+        <h2 id="recent-heading">Recently viewed</h2>
+        <ul id="recent-list" class="chip-list"></ul>
+      </section>
+    </section>
+
+    <!-- Explore view -->
+    <section id="explore-view" class="view" aria-labelledby="explore-heading" hidden>
+      <h2 id="explore-heading">Explore</h2>
+
+      <div class="explore-toolbar">
+        <label for="filter-input" class="visually-hidden">Filter this page by name or type</label>
+        <input id="filter-input" type="search" placeholder="Filter this page by name or type">
+        <p id="explore-status" class="status" role="status" aria-live="polite"></p>
+      </div>
+
+      <div id="grid" class="grid"></div>
+
+      <nav class="pager" aria-label="Pages">
+        <button type="button" id="page-prev" class="btn" disabled>Previous</button>
+        <span id="page-indicator" class="page-indicator">Page 1</span>
+        <button type="button" id="page-next" class="btn" disabled>Next</button>
+      </nav>
+    </section>
+
+  </main>
+
+  <!-- Team dock -->
+  <aside id="team-dock" class="team-dock" aria-labelledby="team-heading" hidden>
+    <div class="team-header">
+      <h2 id="team-heading">My team</h2>
+      <button type="button" id="team-close" class="btn btn-small">Close</button>
+    </div>
+    <ul id="team-list" class="team-list"></ul>
+    <div id="team-coverage" class="coverage"></div>
+  </aside>
+
+  <!-- Compare modal -->
+  <dialog id="compare-dialog" class="compare-dialog" aria-labelledby="compare-heading">
+    <div class="dialog-header">
+      <h2 id="compare-heading">Compare</h2>
+      <button type="button" id="compare-close" class="btn btn-small">Close</button>
+    </div>
+    <form id="compare-form" class="compare-form" autocomplete="off">
+      <label for="compare-input">Compare <strong id="compare-subject">this Pokémon</strong> with</label>
+      <div class="search-row">
+        <input id="compare-input" type="text" name="query" placeholder="blastoise or 9">
+        <button type="submit" class="btn btn-primary">Compare</button>
+      </div>
+    </form>
+    <p id="compare-error" class="error" role="alert" hidden></p>
+    <div id="compare-result" class="compare-result"></div>
+  </dialog>
+
+  <footer class="site-footer">
+    <p>Data from <a href="https://pokeapi.co/" rel="noopener">PokéAPI</a>. Pokémon and Pokémon character names are trademarks of Nintendo.</p>
+  </footer>
+
+  <script src="app.js"></script>
 </body>
 </html>

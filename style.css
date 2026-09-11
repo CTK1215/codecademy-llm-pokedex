@@ -1,0 +1,589 @@
+/* ==========================================================================
+   Pokédex styles
+   Stage 1: design tokens, reset, layout shell, empty states.
+   ========================================================================== */
+
+/* --- Design tokens ------------------------------------------------------ */
+
+:root {
+  --bg: #0f1117;
+  --bg-elevated: #161a24;
+  --surface: #1c2130;
+  --surface-2: #242a3b;
+  --border: #2f3650;
+  --text: #eef0f6;
+  --text-muted: #9aa3b8;
+  --accent: #e3350d;
+  --accent-hover: #ff4a1f;
+  --accent-soft: rgba(227, 53, 13, 0.16);
+  --focus: #7cc4ff;
+  --danger-bg: rgba(255, 92, 92, 0.12);
+  --danger-border: rgba(255, 92, 92, 0.5);
+  --danger-text: #ffb3b3;
+
+  --radius-sm: 8px;
+  --radius: 14px;
+  --radius-lg: 22px;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-8: 3rem;
+
+  --font: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  --header-height: 64px;
+  --content-width: 1100px;
+}
+
+/* --- Reset -------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--font);
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--text);
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(227, 53, 13, 0.18), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgba(124, 196, 255, 0.10), transparent 60%),
+    var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+
+h1,
+h2,
+h3,
+p,
+ul {
+  margin: 0;
+}
+
+ul {
+  padding: 0;
+  list-style: none;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--focus);
+}
+
+/* The hidden attribute must win over any display rule a class sets. */
+[hidden] {
+  display: none !important;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Header ------------------------------------------------------------- */
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: var(--header-height);
+  padding: var(--space-2) var(--space-4);
+  background: rgba(15, 17, 23, 0.85);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-right: auto;
+}
+
+.brand h1 {
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+/* A pokeball drawn in CSS: red top, white bottom, dark band, center button. */
+.pokeball {
+  display: inline-block;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, #fff 0 4px, #1a1a1a 4px 6px, transparent 6px),
+    linear-gradient(to bottom, transparent 0 calc(50% - 2px), #1a1a1a calc(50% - 2px) calc(50% + 2px), transparent calc(50% + 2px)),
+    linear-gradient(to bottom, var(--accent) 0 50%, #f4f4f4 50% 100%);
+  box-shadow: inset 0 0 0 2px #1a1a1a;
+}
+
+.pokeball-lg {
+  width: 96px;
+  height: 96px;
+  background:
+    radial-gradient(circle at center, #fff 0 12px, #1a1a1a 12px 18px, transparent 18px),
+    linear-gradient(to bottom, transparent 0 calc(50% - 5px), #1a1a1a calc(50% - 5px) calc(50% + 5px), transparent calc(50% + 5px)),
+    linear-gradient(to bottom, var(--accent) 0 50%, #f4f4f4 50% 100%);
+  box-shadow: inset 0 0 0 5px #1a1a1a, var(--shadow);
+  opacity: 0.9;
+}
+
+.view-tabs {
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.tab {
+  padding: var(--space-2) var(--space-4);
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tab.is-active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.team-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.5em;
+  height: 1.5em;
+  padding: 0 0.4em;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.8em;
+  font-weight: 700;
+}
+
+/* --- Layout ------------------------------------------------------------- */
+
+main {
+  width: 100%;
+  max-width: var(--content-width);
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-4) var(--space-8);
+  flex: 1;
+}
+
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* --- Buttons ------------------------------------------------------------ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn-small {
+  min-height: 36px;
+  padding: var(--space-1) var(--space-3);
+  font-size: 0.9rem;
+}
+
+:where(button, input, a, [tabindex]):focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* --- Search form -------------------------------------------------------- */
+
+.search-form {
+  position: relative;
+}
+
+.search-label {
+  display: block;
+  margin-bottom: var(--space-2);
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.search-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.search-row input {
+  flex: 1;
+  min-width: 0;
+  min-height: 48px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 1.05rem;
+}
+
+.search-row input::placeholder {
+  color: var(--text-muted);
+}
+
+.suggestions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  margin-top: var(--space-1);
+  padding: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow);
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* --- Messages ----------------------------------------------------------- */
+
+.status {
+  min-height: 1.5em;
+  color: var(--text-muted);
+}
+
+.status:empty {
+  display: none;
+}
+
+.error {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-sm);
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+/* --- Display area ------------------------------------------------------- */
+
+.display {
+  min-height: 320px;
+  border-radius: var(--radius-lg);
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: 320px;
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
+  border: 2px dashed var(--border);
+  border-radius: var(--radius-lg);
+  background: rgba(28, 33, 48, 0.5);
+}
+
+.empty-state h2 {
+  font-size: 1.5rem;
+}
+
+.empty-state p {
+  max-width: 34ch;
+  color: var(--text-muted);
+}
+
+/* --- Sections ----------------------------------------------------------- */
+
+.evolution,
+.recent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.evolution h2,
+.recent h2,
+#explore-heading {
+  font-size: 1.1rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* --- Explore view ------------------------------------------------------- */
+
+.explore-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.explore-toolbar input {
+  min-height: 48px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 1.05rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+}
+
+.page-indicator {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Team dock ---------------------------------------------------------- */
+
+.team-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  max-height: 70vh;
+  overflow: auto;
+  padding: var(--space-4);
+  border-top: 1px solid var(--border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow);
+}
+
+.team-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+
+.team-header h2 {
+  font-size: 1.1rem;
+}
+
+.team-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* --- Compare dialog ----------------------------------------------------- */
+
+.compare-dialog {
+  width: min(92vw, 720px);
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.compare-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(3px);
+}
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.compare-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.compare-form input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+/* --- Footer ------------------------------------------------------------- */
+
+.site-footer {
+  padding: var(--space-4);
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+/* --- Responsive --------------------------------------------------------- */
+
+@media (min-width: 600px) {
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .compare-form {
+    flex-direction: row;
+    align-items: end;
+  }
+}
+
+@media (min-width: 900px) {
+  main {
+    padding-top: var(--space-6);
+  }
+
+  .grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .team-dock {
+    left: auto;
+    top: calc(var(--header-height) + var(--space-4));
+    right: var(--space-4);
+    bottom: auto;
+    width: 340px;
+    max-height: calc(100vh - var(--header-height) - var(--space-8));
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+  }
+}
+
+@media (max-width: 599px) {
+  .site-header {
+    flex-wrap: wrap;
+  }
+
+  .brand {
+    margin-right: 0;
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .view-tabs {
+    flex: 1;
+  }
+
+  .tab {
+    flex: 1;
+    text-align: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
