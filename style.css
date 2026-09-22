@@ -1,6 +1,8 @@
 /* ==========================================================================
    Pokédex styles
    Stage 1: design tokens, reset, layout shell, empty states.
+   Stage 3: the Pokémon card (type palette, sprite, badges, skyline stats,
+            ability tooltips). Appended at the bottom of this file.
    ========================================================================== */
 
 /* --- Design tokens ------------------------------------------------------ */
@@ -585,5 +587,416 @@ main {
   *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* ==========================================================================
+   Stage 3: the Pokémon card
+   ========================================================================== */
+
+/* --- Type palette ---------------------------------------------------------
+   app.js sets --type on the card (one hex color per type). Every other shade
+   on the card is mixed from that one value, so the whole card matches. */
+
+.card {
+  --type: #a8a878;
+  --type-soft: color-mix(in srgb, var(--type) 18%, transparent);
+  --type-glow: color-mix(in srgb, var(--type) 55%, transparent);
+  --type-light: color-mix(in srgb, var(--type) 60%, white);
+  --type-line: color-mix(in srgb, var(--type) 40%, var(--border));
+
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-5);
+  border: 1px solid var(--type-line);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(180deg, var(--type-soft), transparent 40%),
+    var(--surface);
+  box-shadow: var(--shadow);
+  animation: card-in 0.35s ease-out both;
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+/* --- Header: sprite + title --------------------------------------------- */
+
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.sprite-wrap {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 176px;
+  height: 176px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--type-soft), transparent 70%);
+}
+
+.card-sprite {
+  max-width: 160px;
+  max-height: 160px;
+  filter: drop-shadow(0 0 12px var(--type-glow));
+  animation: sprite-float 3s ease-in-out infinite;
+}
+
+/* Pixel-art sprites are scaled up by app.js; keep the pixels sharp. */
+.card-sprite.is-pixel {
+  image-rendering: pixelated;
+}
+
+@keyframes sprite-float {
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.card-title {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.card-id {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.card-name {
+  font-size: clamp(1.6rem, 4vw, 2.2rem);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: 0.01em;
+}
+
+.card-genus {
+  color: var(--text-muted);
+}
+
+.type-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.type-badge {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--type-light);
+  border-radius: 999px;
+  color: var(--type-light);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* The primary type is solid, a second type is outlined in the same hue. */
+.type-badge:first-child {
+  background: var(--type-light);
+  color: #111;
+}
+
+/* --- Description + facts ------------------------------------------------ */
+
+.card-description {
+  max-width: 62ch;
+  font-size: 1.05rem;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.fact {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(15, 17, 23, 0.4);
+}
+
+.fact-label {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fact-value {
+  margin: var(--space-1) 0 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Sections ------------------------------------------------------------- */
+
+.card-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.card-section-title {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* --- Abilities: holo badges + tooltip ------------------------------------- */
+
+.ability-area {
+  position: relative;
+}
+
+.ability-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.ability-badge {
+  position: relative;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  border: 0;
+  border-radius: 12px;
+  color: #111;
+  font-weight: 700;
+  cursor: pointer;
+  background: linear-gradient(
+    115deg,
+    var(--type-light),
+    var(--type) 35%,
+    var(--type-light) 50%,
+    var(--type) 65%,
+    var(--type-light)
+  );
+  background-size: 250% 100%;
+  box-shadow: 0 0 18px var(--type-glow);
+  animation: holo-shimmer 3.5s linear infinite;
+  transition: transform 0.15s ease;
+}
+
+.ability-badge:hover,
+.ability-badge.is-active {
+  transform: translateY(-2px);
+}
+
+.ability-badge.is-hidden-ability {
+  outline: 2px dashed var(--type-light);
+  outline-offset: 3px;
+}
+
+/* The dashed outline is the "hidden" marker, so the focus ring needs to differ. */
+.ability-badge:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.ability-hidden {
+  margin-left: var(--space-2);
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+@keyframes holo-shimmer {
+  to {
+    background-position: -250% 0;
+  }
+}
+
+.ability-tip {
+  position: relative;
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--type);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  box-shadow: var(--shadow-sm);
+}
+
+.ability-tip::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  left: 28px;
+  width: 12px;
+  height: 12px;
+  border-top: 1px solid var(--type);
+  border-left: 1px solid var(--type);
+  background: var(--bg);
+  transform: rotate(45deg);
+}
+
+.ability-tip strong {
+  color: var(--text);
+}
+
+/* --- Base stats: skyline bars --------------------------------------------- */
+
+.stats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* Each stat is a column: value on top, bar filling the middle, label pinned
+   to the bottom under the floor line. The bottom padding on .stat is the
+   label's row, so the bar never has to share space with it. */
+.stat-list {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: var(--space-2);
+  height: 240px;
+  padding: 0 var(--space-1);
+  border-bottom: 1px solid var(--type-line);
+}
+
+.stat {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-bottom: 32px;
+  min-width: 0;
+}
+
+.stat-value {
+  flex: 0 0 auto;
+  margin-bottom: var(--space-2);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-bar {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  max-width: 44px;
+}
+
+.stat-fill {
+  width: 100%;
+  border-radius: 6px 6px 0 0;
+  background: linear-gradient(180deg, var(--type-light), var(--type));
+  box-shadow: 0 0 18px var(--type-glow);
+  transform-origin: bottom;
+  animation: bar-rise 0.7s ease-out both;
+}
+
+/* A faint reflection just below the floor line. */
+.stat-bar::after {
+  content: "";
+  position: absolute;
+  top: calc(100% + 33px);
+  left: 0;
+  width: 100%;
+  height: 20px;
+  background: linear-gradient(180deg, var(--type-soft), transparent);
+}
+
+.stat-name {
+  position: absolute;
+  bottom: 8px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+@keyframes bar-rise {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+.stat-total {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-muted);
+}
+
+.stat-total strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Card responsive ------------------------------------------------------ */
+
+@media (max-width: 599px) {
+  .card {
+    padding: var(--space-4);
+  }
+
+  .card-header {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .card-title {
+    align-items: center;
+  }
+
+  .card-description {
+    text-align: center;
+  }
+
+  .facts {
+    gap: var(--space-2);
+  }
+
+  .fact {
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .fact-value {
+    font-size: 1rem;
+  }
+
+  .stat-list {
+    height: 200px;
+  }
+
+  .stat-name {
+    font-size: 0.62rem;
+  }
+}
+
+/* Users who turn animation off get a still sprite, still badges, full bars. */
+@media (prefers-reduced-motion: reduce) {
+  .card-sprite,
+  .ability-badge,
+  .stat-fill,
+  .card {
+    animation: none;
   }
 }

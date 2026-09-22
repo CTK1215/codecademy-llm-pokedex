@@ -2,20 +2,48 @@
    Pokédex app
    Stage 2: capture the search, fetch from PokéAPI, render the card,
    handle errors and the loading state.
+   Stage 3: type palette, animated sprite, skyline stats, ability tooltips.
    ========================================================================== */
 
 const API_BASE = "https://pokeapi.co/api/v2";
 
-// Highest base stat any Pokémon has. Used to size the stat bars as a percentage.
+// Highest base stat any Pokémon has. Used for the meter's aria-valuemax.
 const MAX_BASE_STAT = 255;
+
+// Bars are scaled to 180 instead of 255 so a typical Pokémon fills the space.
+// Anything above 180 is capped at a full bar.
+const STAT_BAR_SCALE = 180;
 
 const STAT_LABELS = {
   hp: "HP",
   attack: "Attack",
   defense: "Defense",
-  "special-attack": "Sp. Attack",
-  "special-defense": "Sp. Defense",
+  "special-attack": "Sp. Atk",
+  "special-defense": "Sp. Def",
   speed: "Speed",
+};
+
+// One color per type. The card sets its --type variable from this and the CSS
+// mixes every other shade (glow, badge, bars) from that single value.
+const TYPE_COLORS = {
+  normal: "#a8a878",
+  fire: "#f08030",
+  water: "#6890f0",
+  electric: "#f8d030",
+  grass: "#78c850",
+  ice: "#98d8d8",
+  fighting: "#c03028",
+  poison: "#a040a0",
+  ground: "#e0c068",
+  flying: "#a890f0",
+  psychic: "#f85888",
+  bug: "#a8b820",
+  rock: "#b8a038",
+  ghost: "#705898",
+  dragon: "#7038f8",
+  dark: "#705848",
+  steel: "#b8b8d0",
+  fairy: "#ee99ac",
 };
 
 /* --- DOM references (queried once, reused everywhere) -------------------- */
@@ -34,6 +62,10 @@ const emptyStateTemplate = displayEl.firstElementChild.cloneNode(true);
 
 // The Pokémon currently on screen. Later stages (Previous / Next, Compare) read this.
 let currentPokemon = null;
+
+// Ability descriptions already fetched, keyed by ability URL. Hovering the same
+// ability twice should not hit the API twice.
+const abilityCache = new Map();
 
 /* --- Small helpers -------------------------------------------------------- */
 
@@ -92,10 +124,28 @@ async function getSpecies(speciesName) {
   return fetchJson(`${API_BASE}/pokemon-species/${encodeURIComponent(speciesName)}`);
 }
 
+// The ability list already contains the full URL for each ability, so this
+// takes a URL instead of a name.
+async function getAbility(url) {
+  if (abilityCache.has(url)) return abilityCache.get(url);
+
+  const ability = await fetchJson(url);
+  abilityCache.set(url, ability);
+  return ability;
+}
+
 /* --- Data extraction ------------------------------------------------------ */
 
-function getArtworkUrl(pokemon) {
-  return pokemon.sprites.other["official-artwork"].front_default || pokemon.sprites.front_default;
+// Animated game sprite first, then the older animated set, then static artwork.
+function getSprite(pokemon) {
+  const sprites = pokemon.sprites;
+  const showdown = sprites.other.showdown && sprites.other.showdown.front_default;
+  const blackWhite = sprites.versions["generation-v"]["black-white"].animated.front_default;
+  const artwork = sprites.other["official-artwork"].front_default;
+
+  if (showdown) return { url: showdown, animated: true };
+  if (blackWhite) return { url: blackWhite, animated: true };
+  return { url: artwork || sprites.front_default, animated: false };
 }
 
 function getEnglishGenus(species) {
@@ -103,32 +153,31 @@ function getEnglishGenus(species) {
   return entry ? entry.genus : "";
 }
 
-function getEnglishDescription(species) {
-  const englishEntries = species.flavor_text_entries.filter((entry) => entry.language.name === "en");
+// Shared by the species description and the ability descriptions: both use
+// the same flavor_text_entries shape.
+function getLatestEnglishFlavorText(entries) {
+  const englishEntries = entries.filter((entry) => entry.language.name === "en");
   if (englishEntries.length === 0) return "";
 
   // The last entry is from the newest game, which has the most modern wording.
   return cleanFlavorText(englishEntries[englishEntries.length - 1].flavor_text);
 }
 
+function getStatTotal(stats) {
+  return stats.reduce((total, entry) => total + entry.base_stat, 0);
+}
+
 /* --- Rendering ------------------------------------------------------------ */
 
 function renderPokemon(pokemon, species) {
-  const card = createElement("article", "card");
-  card.classList.add(`type-${pokemon.types[0].type.name}`);
+  const primaryType = pokemon.types[0].type.name;
 
-  // Header: artwork, number, name, category
+  const card = createElement("article", `card type-${primaryType}`);
+  card.style.setProperty("--type", TYPE_COLORS[primaryType] || "#a8a878");
+
+  // Header: sprite, number, name, category, types
   const header = createElement("header", "card-header");
-
-  const artworkUrl = getArtworkUrl(pokemon);
-  if (artworkUrl) {
-    const image = createElement("img", "card-image");
-    image.src = artworkUrl;
-    image.alt = `${formatName(pokemon.name)} official artwork`;
-    image.width = 240;
-    image.height = 240;
-    header.appendChild(image);
-  }
+  header.appendChild(renderSprite(pokemon));
 
   const titleBlock = createElement("div", "card-title");
   titleBlock.appendChild(createElement("p", "card-id", formatId(pokemon.id)));
@@ -142,7 +191,7 @@ function renderPokemon(pokemon, species) {
 
   // Description from the species endpoint
   if (species) {
-    const description = getEnglishDescription(species);
+    const description = getLatestEnglishFlavorText(species.flavor_text_entries);
     if (description) {
       card.appendChild(createElement("p", "card-description", description));
     }
@@ -166,6 +215,29 @@ function renderPokemon(pokemon, species) {
   // replaceChildren() removes whatever was there (empty state or the last card)
   // and inserts the new card in one step.
   displayEl.replaceChildren(card);
+}
+
+function renderSprite(pokemon) {
+  const wrap = createElement("div", "sprite-wrap");
+  const sprite = getSprite(pokemon);
+
+  if (!sprite.url) return wrap;
+
+  const image = createElement("img", "card-sprite");
+  image.src = sprite.url;
+  image.alt = `${formatName(pokemon.name)} ${sprite.animated ? "animated sprite" : "official artwork"}`;
+
+  if (sprite.animated) {
+    // Game sprites are tiny pixel art (40 to 140 px). Show them at double size,
+    // capped to the box, and keep the pixels crisp instead of blurring them.
+    image.classList.add("is-pixel");
+    image.addEventListener("load", () => {
+      image.style.width = `${Math.min(image.naturalWidth * 2, 160)}px`;
+    });
+  }
+
+  wrap.appendChild(image);
+  return wrap;
 }
 
 function renderTypes(types) {
@@ -201,46 +273,73 @@ function renderFacts(pokemon) {
 }
 
 function renderAbilities(abilities) {
+  const wrap = createElement("div", "ability-area");
   const list = createElement("ul", "ability-list");
 
   for (const entry of abilities) {
-    const item = createElement("li", "ability", formatName(entry.ability.name));
+    const item = createElement("li", "ability");
+
+    // A button, not a span, so keyboard users can reach the tooltip too.
+    const badge = createElement("button", "ability-badge", formatName(entry.ability.name));
+    badge.type = "button";
+    badge.dataset.url = entry.ability.url;
+    badge.setAttribute("aria-describedby", "ability-tip");
+
     if (entry.is_hidden) {
-      item.appendChild(createElement("span", "ability-hidden", " (hidden)"));
+      badge.classList.add("is-hidden-ability");
+      badge.appendChild(createElement("span", "ability-hidden", "Hidden"));
     }
+
+    item.appendChild(badge);
     list.appendChild(item);
   }
 
-  return list;
+  // One tooltip per card, shared by all its badges.
+  const tip = createElement("div", "ability-tip");
+  tip.id = "ability-tip";
+  tip.setAttribute("role", "tooltip");
+  tip.hidden = true;
+
+  wrap.appendChild(list);
+  wrap.appendChild(tip);
+  return wrap;
 }
 
 function renderStats(stats) {
+  const wrap = createElement("div", "stats");
   const list = createElement("ul", "stat-list");
 
   for (const entry of stats) {
     const statName = entry.stat.name;
     const value = entry.base_stat;
+    const label = STAT_LABELS[statName] || formatName(statName);
 
     const item = createElement("li", "stat");
-    item.appendChild(createElement("span", "stat-name", STAT_LABELS[statName] || formatName(statName)));
     item.appendChild(createElement("span", "stat-value", String(value)));
 
     const bar = createElement("div", "stat-bar");
     bar.setAttribute("role", "meter");
-    bar.setAttribute("aria-label", STAT_LABELS[statName] || formatName(statName));
+    bar.setAttribute("aria-label", label);
     bar.setAttribute("aria-valuemin", "0");
     bar.setAttribute("aria-valuemax", String(MAX_BASE_STAT));
     bar.setAttribute("aria-valuenow", String(value));
 
     const fill = createElement("div", "stat-fill");
-    fill.style.width = `${Math.round((value / MAX_BASE_STAT) * 100)}%`;
+    fill.style.height = `${Math.min(Math.round((value / STAT_BAR_SCALE) * 100), 100)}%`;
     bar.appendChild(fill);
 
     item.appendChild(bar);
+    item.appendChild(createElement("span", "stat-name", label));
     list.appendChild(item);
   }
 
-  return list;
+  const total = createElement("div", "stat-total");
+  total.appendChild(createElement("span", "", "Total"));
+  total.appendChild(createElement("strong", "", String(getStatTotal(stats))));
+
+  wrap.appendChild(list);
+  wrap.appendChild(total);
+  return wrap;
 }
 
 function renderError(message) {
@@ -261,6 +360,78 @@ function setLoading(isLoading) {
   statusEl.textContent = isLoading ? "Searching Pokédex..." : "";
   displayEl.setAttribute("aria-busy", String(isLoading));
   searchButton.disabled = isLoading;
+}
+
+/* --- Ability tooltip ------------------------------------------------------ */
+
+async function showAbilityTip(badge) {
+  const tip = badge.closest(".ability-area").querySelector(".ability-tip");
+  const abilityName = badge.firstChild.textContent;
+
+  // Mark the active badge so the CSS can highlight it.
+  for (const other of badge.closest(".ability-list").querySelectorAll(".ability-badge")) {
+    other.classList.toggle("is-active", other === badge);
+  }
+
+  tip.replaceChildren(createElement("strong", "", abilityName), " ", "Loading...");
+  tip.hidden = false;
+
+  try {
+    const ability = await getAbility(badge.dataset.url);
+    const description = getLatestEnglishFlavorText(ability.flavor_text_entries) || "No description available.";
+
+    // The user may have moved to another badge while this request was in flight.
+    if (!badge.classList.contains("is-active")) return;
+
+    tip.replaceChildren(createElement("strong", "", abilityName), " ", description);
+  } catch {
+    tip.replaceChildren(createElement("strong", "", abilityName), " ", "Could not load this ability.");
+  }
+}
+
+function hideAbilityTip(badge) {
+  // A clicked (pinned) badge stays open until it is clicked again or Escape is pressed.
+  if (badge.classList.contains("is-pinned")) return;
+
+  badge.classList.remove("is-active");
+  badge.closest(".ability-area").querySelector(".ability-tip").hidden = true;
+}
+
+function hideAllAbilityTips() {
+  for (const badge of displayEl.querySelectorAll(".ability-badge")) {
+    badge.classList.remove("is-pinned", "is-active");
+  }
+  for (const tip of displayEl.querySelectorAll(".ability-tip")) {
+    tip.hidden = true;
+  }
+}
+
+// One set of listeners on the display area covers every badge on every card
+// that will ever be rendered (event delegation). The badges themselves are
+// thrown away and rebuilt on each search.
+function handleAbilityHover(event) {
+  const badge = event.target.closest(".ability-badge");
+  if (badge) showAbilityTip(badge);
+}
+
+function handleAbilityLeave(event) {
+  const badge = event.target.closest(".ability-badge");
+  if (badge && !badge.contains(event.relatedTarget)) hideAbilityTip(badge);
+}
+
+function handleAbilityClick(event) {
+  const badge = event.target.closest(".ability-badge");
+  if (!badge) return;
+
+  if (badge.classList.contains("is-pinned")) {
+    badge.classList.remove("is-pinned");
+    hideAbilityTip(badge);
+    return;
+  }
+
+  hideAllAbilityTips();
+  badge.classList.add("is-pinned");
+  showAbilityTip(badge);
 }
 
 /* --- Application logic ---------------------------------------------------- */
@@ -319,3 +490,13 @@ async function handleSearch(event) {
 /* --- Wire up events ------------------------------------------------------- */
 
 searchForm.addEventListener("submit", handleSearch);
+
+displayEl.addEventListener("mouseover", handleAbilityHover);
+displayEl.addEventListener("mouseout", handleAbilityLeave);
+displayEl.addEventListener("focusin", handleAbilityHover);
+displayEl.addEventListener("focusout", handleAbilityLeave);
+displayEl.addEventListener("click", handleAbilityClick);
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") hideAllAbilityTips();
+});
