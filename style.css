@@ -1,8 +1,15 @@
 /* ==========================================================================
    Pokédex styles
-   Stage 1: design tokens, reset, layout shell, empty states.
-   Stage 3: the Pokémon card (type palette, sprite, badges, skyline stats,
-            ability tooltips). Appended at the bottom of this file.
+
+   Sections run in the order they were built, each marked by a banner below:
+   Stage 1  tokens, reset, header, layout, buttons, form, dock and dialog shells
+   Stage 3  the Pokémon card: type palette, sprite, badges, skyline stats
+   Stage 4  evolution chain and recently viewed chips
+   Stage 5  the Explore grid
+   Stage 6  suggestions, team members, type coverage, compare table
+
+   Colors on a card come from one custom property. app.js sets --type from the
+   Pokémon's primary type and every other shade is mixed from it.
    ========================================================================== */
 
 /* --- Design tokens ------------------------------------------------------ */
@@ -38,7 +45,6 @@
   --space-8: 3rem;
 
   --font: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
 
   --header-height: 64px;
   --content-width: 1100px;
@@ -1206,5 +1212,203 @@ main {
 @media (prefers-reduced-motion: reduce) {
   .grid-card:hover {
     transform: none;
+  }
+}
+
+/* ==========================================================================
+   Stage 6: suggestions, team dock, coverage, compare
+   ========================================================================== */
+
+/* --- Search suggestions --------------------------------------------------- */
+
+.suggestion {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.suggestion:hover,
+.suggestion.is-active {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+/* --- Card action row ------------------------------------------------------ */
+
+.card-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.team-action.is-on-team {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+/* --- Team dock ------------------------------------------------------------ */
+
+.team-empty {
+  width: 100%;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.team-member {
+  --type: #a8a878;
+
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--type) 45%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--type) 14%, var(--surface));
+}
+
+.team-image {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+}
+
+.team-open {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.team-open:hover {
+  text-decoration: underline;
+}
+
+.team-remove {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.team-remove:hover {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+/* --- Type coverage -------------------------------------------------------- */
+
+.coverage {
+  margin-top: var(--space-4);
+}
+
+.coverage-status {
+  margin-bottom: var(--space-2);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.coverage-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+/* Uncovered types stay outlined and dim; covered ones fill with their color,
+   so the gaps in a team read at a glance. */
+.coverage-chip {
+  --type: #a8a878;
+
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.coverage-chip.is-covered {
+  border-color: var(--type);
+  background: color-mix(in srgb, var(--type) 70%, white);
+  color: #111;
+  opacity: 1;
+}
+
+/* --- Compare -------------------------------------------------------------- */
+
+.compare-loading {
+  color: var(--text-muted);
+}
+
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.compare-table th,
+.compare-table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+}
+
+.compare-table thead th:first-child,
+.compare-table tbody th,
+.compare-table tfoot th {
+  color: var(--text-muted);
+  font-weight: 600;
+  text-align: left;
+}
+
+.compare-name {
+  --type: #a8a878;
+
+  color: var(--type);
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.compare-table td.is-winner {
+  color: var(--text);
+  font-weight: 800;
+}
+
+/* The winning number gets a dot so the comparison survives without color. */
+.compare-table td.is-winner::after {
+  content: " \25CF";
+  color: var(--accent);
+  font-size: 0.7em;
+  vertical-align: middle;
+}
+
+.compare-table tfoot th,
+.compare-table tfoot td {
+  border-bottom: 0;
+  border-top: 2px solid var(--border);
+  font-size: 1.05rem;
+}
+
+@media (max-width: 599px) {
+  .compare-table th,
+  .compare-table td {
+    padding: var(--space-2);
+    font-size: 0.9rem;
   }
 }

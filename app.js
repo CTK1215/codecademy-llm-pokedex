@@ -5,6 +5,7 @@
    Stage 3: type palette, animated sprite, skyline stats, ability tooltips.
    Stage 4: random, previous / next, recently viewed, evolution chain.
    Stage 5: the Explore view, paginated grid and client-side filter.
+   Stage 6: search suggestions, the team dock with type coverage, compare.
    ========================================================================== */
 
 const API_BASE = "https://pokeapi.co/api/v2";
@@ -25,6 +26,13 @@ const RECENT_LIMIT = 8;
 // with an orphan row on any screen size.
 const PAGE_SIZE = 24;
 const TOTAL_PAGES = Math.ceil(MAX_POKEMON_ID / PAGE_SIZE);
+
+const TEAM_KEY = "pokedex-team";
+
+// A Pokémon party is six. The dock enforces the same limit.
+const TEAM_LIMIT = 6;
+
+const SUGGESTION_LIMIT = 8;
 
 // Highest base stat any Pokémon has. Used for the meter's aria-valuemax.
 const MAX_BASE_STAT = 255;
@@ -95,6 +103,24 @@ const pagePrevButton = document.getElementById("page-prev");
 const pageNextButton = document.getElementById("page-next");
 const pageIndicatorEl = document.getElementById("page-indicator");
 
+const suggestionsEl = document.getElementById("suggestions");
+
+const teamToggleButton = document.getElementById("team-toggle");
+const teamCountEl = document.getElementById("team-count");
+const teamDock = document.getElementById("team-dock");
+const teamCloseButton = document.getElementById("team-close");
+const teamListEl = document.getElementById("team-list");
+const teamCoverageEl = document.getElementById("team-coverage");
+
+const compareButton = document.getElementById("compare-button");
+const compareDialog = document.getElementById("compare-dialog");
+const compareCloseButton = document.getElementById("compare-close");
+const compareForm = document.getElementById("compare-form");
+const compareInput = document.getElementById("compare-input");
+const compareSubjectEl = document.getElementById("compare-subject");
+const compareErrorEl = document.getElementById("compare-error");
+const compareResultEl = document.getElementById("compare-result");
+
 // A copy of the empty state from the HTML, so we can put it back after an error.
 const emptyStateTemplate = displayEl.firstElementChild.cloneNode(true);
 
@@ -129,6 +155,20 @@ const pageCache = new Map();
 
 // The Explore grid loads on first visit, not on page load.
 let exploreLoaded = false;
+
+/* Stage 6 state. */
+
+// Every Pokémon name, fetched once and reused for every keystroke.
+let allNames = [];
+
+// Which suggestion the arrow keys have landed on, or -1 for none.
+let activeSuggestion = -1;
+
+// The saved team: [{ name, id, types: [...] }], at most TEAM_LIMIT.
+let team = [];
+
+// Type records keyed by name, so coverage never refetches a type.
+const typeCache = new Map();
 
 /* --- Small helpers -------------------------------------------------------- */
 
@@ -213,6 +253,25 @@ async function getPokemonList(limit, offset) {
   return fetchJson(`${API_BASE}/pokemon?limit=${limit}&offset=${offset}`);
 }
 
+// A type record carries the damage chart, which is where coverage comes from.
+async function getType(name) {
+  if (typeCache.has(name)) return typeCache.get(name);
+
+  const type = await fetchJson(`${API_BASE}/type/${name}`);
+  typeCache.set(name, type);
+  return type;
+}
+
+// Every name in one 68KB request, fetched the first time the user types and
+// reused for every keystroke after. Suggestions never hit the network again.
+async function loadAllNames() {
+  if (allNames.length > 0) return allNames;
+
+  const list = await getPokemonList(MAX_POKEMON_ID, 0);
+  allNames = list.results.map((entry) => entry.name);
+  return allNames;
+}
+
 /* --- Data extraction ------------------------------------------------------ */
 
 // Animated game sprite first, then the older animated set, then static artwork.
@@ -251,7 +310,7 @@ function getStatTotal(stats) {
 function renderPokemon(pokemon, species) {
   const primaryType = pokemon.types[0].type.name;
 
-  const card = createElement("article", `card type-${primaryType}`);
+  const card = createElement("article", "card");
   card.style.setProperty("--type", TYPE_COLORS[primaryType] || "#a8a878");
 
   // Header: sprite, number, name, category, types
@@ -291,6 +350,13 @@ function renderPokemon(pokemon, species) {
   statsSection.appendChild(renderStats(pokemon.stats));
   card.appendChild(statsSection);
 
+  // Team action. Its label depends on team state, so updateTeamButton sets it.
+  const actions = createElement("div", "card-actions");
+  const teamAction = createElement("button", "btn team-action");
+  teamAction.type = "button";
+  actions.appendChild(teamAction);
+  card.appendChild(actions);
+
   // replaceChildren() removes whatever was there (empty state or the last card)
   // and inserts the new card in one step.
   displayEl.replaceChildren(card);
@@ -324,8 +390,7 @@ function renderTypes(types) {
   list.setAttribute("aria-label", "Types");
 
   for (const entry of types) {
-    const typeName = entry.type.name;
-    list.appendChild(createElement("li", `type-badge type-${typeName}`, formatName(typeName)));
+    list.appendChild(createElement("li", "type-badge", formatName(entry.type.name)));
   }
 
   return list;
@@ -356,7 +421,7 @@ function renderAbilities(abilities) {
   const list = createElement("ul", "ability-list");
 
   for (const entry of abilities) {
-    const item = createElement("li", "ability");
+    const item = createElement("li");
 
     // A button, not a span, so keyboard users can reach the tooltip too.
     const badge = createElement("button", "ability-badge", formatName(entry.ability.name));
@@ -623,7 +688,7 @@ function setView(view) {
 function renderGridCard(pokemon) {
   const primaryType = pokemon.types[0].type.name;
 
-  const card = createElement("button", `grid-card type-${primaryType}`);
+  const card = createElement("button", "grid-card");
   card.type = "button";
   card.dataset.name = pokemon.name;
   card.style.setProperty("--type", TYPE_COLORS[primaryType] || "#a8a878");
@@ -646,12 +711,9 @@ function renderGridCard(pokemon) {
   return card;
 }
 
+// An empty list clears the grid on its own, since replaceChildren() with no
+// arguments removes everything.
 function renderGrid(entries) {
-  if (entries.length === 0) {
-    gridEl.replaceChildren();
-    return;
-  }
-
   gridEl.replaceChildren(...entries.map(renderGridCard));
 }
 
@@ -746,6 +808,411 @@ function handleTabClick(event) {
   setView(tab.dataset.view);
 }
 
+/* --- Search suggestions --------------------------------------------------- */
+
+// Names that begin with the query come first, then names that merely contain
+// it, so typing "char" offers Charmander before Charjabug.
+function matchNames(query) {
+  const startsWith = [];
+  const contains = [];
+
+  for (const name of allNames) {
+    if (name.startsWith(query)) startsWith.push(name);
+    else if (name.includes(query)) contains.push(name);
+
+    if (startsWith.length >= SUGGESTION_LIMIT) break;
+  }
+
+  return [...startsWith, ...contains].slice(0, SUGGESTION_LIMIT);
+}
+
+function closeSuggestions() {
+  suggestionsEl.hidden = true;
+  suggestionsEl.replaceChildren();
+  searchInput.setAttribute("aria-expanded", "false");
+  searchInput.removeAttribute("aria-activedescendant");
+  activeSuggestion = -1;
+}
+
+function highlightSuggestion(index) {
+  const options = [...suggestionsEl.querySelectorAll(".suggestion")];
+  if (options.length === 0) return;
+
+  // Wrap in both directions so the list is a loop.
+  activeSuggestion = (index + options.length) % options.length;
+
+  options.forEach((option, i) => {
+    const isActive = i === activeSuggestion;
+    option.classList.toggle("is-active", isActive);
+    option.setAttribute("aria-selected", String(isActive));
+  });
+
+  searchInput.setAttribute("aria-activedescendant", options[activeSuggestion].id);
+}
+
+function renderSuggestions(names) {
+  if (names.length === 0) {
+    closeSuggestions();
+    return;
+  }
+
+  suggestionsEl.replaceChildren(
+    ...names.map((name, index) => {
+      const option = createElement("li", "suggestion", formatName(name));
+      option.id = `suggestion-${index}`;
+      option.setAttribute("role", "option");
+      option.setAttribute("aria-selected", "false");
+      option.dataset.name = name;
+      return option;
+    })
+  );
+
+  suggestionsEl.hidden = false;
+  searchInput.setAttribute("aria-expanded", "true");
+  activeSuggestion = -1;
+}
+
+async function handleSearchInput() {
+  const query = cleanQuery(searchInput.value);
+
+  // A number is a Pokédex lookup, not a name, so there is nothing to suggest.
+  if (query.length < 2 || /^\d+$/.test(query)) {
+    closeSuggestions();
+    return;
+  }
+
+  try {
+    await loadAllNames();
+  } catch {
+    // Suggestions are a convenience. Losing them must not break searching.
+    closeSuggestions();
+    return;
+  }
+
+  // The user may have kept typing while the name list was downloading.
+  if (cleanQuery(searchInput.value) !== query) return;
+
+  renderSuggestions(matchNames(query));
+}
+
+function chooseSuggestion(name) {
+  searchInput.value = formatName(name);
+  closeSuggestions();
+  loadPokemon(name);
+}
+
+function handleSearchKeydown(event) {
+  if (suggestionsEl.hidden) return;
+
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    highlightSuggestion(activeSuggestion + 1);
+  } else if (event.key === "ArrowUp") {
+    event.preventDefault();
+    highlightSuggestion(activeSuggestion - 1);
+  } else if (event.key === "Escape") {
+    closeSuggestions();
+  } else if (event.key === "Enter" && activeSuggestion >= 0) {
+    // Take the highlighted suggestion instead of submitting the raw text.
+    event.preventDefault();
+    chooseSuggestion(suggestionsEl.querySelectorAll(".suggestion")[activeSuggestion].dataset.name);
+  }
+}
+
+/* --- Team dock ------------------------------------------------------------ */
+
+function loadTeam() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(TEAM_KEY));
+    if (!Array.isArray(stored)) return [];
+
+    return stored
+      .filter(
+        (entry) =>
+          entry && typeof entry.name === "string" && Number.isFinite(entry.id) && Array.isArray(entry.types)
+      )
+      .slice(0, TEAM_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+function saveTeam() {
+  try {
+    localStorage.setItem(TEAM_KEY, JSON.stringify(team));
+  } catch {
+    // Same as the history: a storage failure is not worth an interruption.
+  }
+}
+
+function isOnTeam(name) {
+  return team.some((member) => member.name === name);
+}
+
+function toggleTeamMember(pokemon) {
+  if (isOnTeam(pokemon.name)) {
+    team = team.filter((member) => member.name !== pokemon.name);
+  } else {
+    // The card's button is already disabled at the limit; this is the backstop.
+    if (team.length >= TEAM_LIMIT) return;
+
+    team.push({
+      name: pokemon.name,
+      id: pokemon.id,
+      types: pokemon.types.map((entry) => entry.type.name),
+    });
+  }
+
+  saveTeam();
+  renderTeam();
+  updateTeamButton();
+}
+
+// Which of the 18 battle types this team can hit for double damage. Each of
+// the team's own types contributes the list the API gives for it.
+async function computeCoverage() {
+  const teamTypes = [...new Set(team.flatMap((member) => member.types))];
+  const records = await Promise.all(teamTypes.map(getType));
+
+  const covered = new Set();
+  for (const record of records) {
+    for (const entry of record.damage_relations.double_damage_to) {
+      covered.add(entry.name);
+    }
+  }
+
+  return covered;
+}
+
+async function renderCoverage() {
+  if (team.length === 0) {
+    teamCoverageEl.replaceChildren();
+    return;
+  }
+
+  teamCoverageEl.replaceChildren(createElement("p", "coverage-status", "Working out coverage..."));
+
+  let covered;
+  try {
+    covered = await computeCoverage();
+  } catch {
+    teamCoverageEl.replaceChildren(createElement("p", "coverage-status", "Could not load type coverage."));
+    return;
+  }
+
+  const allTypes = Object.keys(TYPE_COLORS);
+
+  const heading = createElement(
+    "p",
+    "coverage-status",
+    `Hits ${covered.size} of ${allTypes.length} types for double damage.`
+  );
+
+  const list = createElement("ul", "coverage-list");
+  list.setAttribute("aria-label", "Type coverage");
+
+  for (const typeName of allTypes) {
+    const isCovered = covered.has(typeName);
+    const chip = createElement("li", `coverage-chip${isCovered ? " is-covered" : ""}`, formatName(typeName));
+    chip.style.setProperty("--type", TYPE_COLORS[typeName]);
+    chip.title = isCovered ? `Your team hits ${formatName(typeName)} for 2x` : `No 2x hit on ${formatName(typeName)}`;
+    list.appendChild(chip);
+  }
+
+  teamCoverageEl.replaceChildren(heading, list);
+}
+
+function renderTeam() {
+  teamCountEl.textContent = String(team.length);
+
+  if (team.length === 0) {
+    teamListEl.replaceChildren(
+      createElement("li", "team-empty", "No Pokémon yet. Open one and press Add to team.")
+    );
+    teamCoverageEl.replaceChildren();
+    return;
+  }
+
+  teamListEl.replaceChildren(
+    ...team.map((member) => {
+      const item = createElement("li", "team-member");
+      item.style.setProperty("--type", TYPE_COLORS[member.types[0]] || "#a8a878");
+
+      const image = createElement("img", "team-image");
+      image.src = `${ARTWORK_BASE}/${member.id}.png`;
+      image.alt = "";
+      image.loading = "lazy";
+
+      const open = createElement("button", "team-open", formatName(member.name));
+      open.type = "button";
+      open.dataset.name = member.name;
+
+      const remove = createElement("button", "team-remove", "×");
+      remove.type = "button";
+      remove.dataset.remove = member.name;
+      remove.setAttribute("aria-label", `Remove ${formatName(member.name)} from team`);
+
+      item.append(image, open, remove);
+      return item;
+    })
+  );
+
+  renderCoverage();
+}
+
+function setTeamDockOpen(isOpen) {
+  teamDock.hidden = !isOpen;
+  teamToggleButton.setAttribute("aria-expanded", String(isOpen));
+}
+
+function handleTeamListClick(event) {
+  const remove = event.target.closest("[data-remove]");
+  if (remove) {
+    team = team.filter((member) => member.name !== remove.dataset.remove);
+    saveTeam();
+    renderTeam();
+    updateTeamButton();
+    return;
+  }
+
+  const open = event.target.closest("[data-name]");
+  if (open) {
+    setView("search");
+    loadPokemon(open.dataset.name);
+  }
+}
+
+// The card's own add / remove button, rebuilt with every card.
+function updateTeamButton() {
+  const button = displayEl.querySelector(".team-action");
+  if (!button || !currentPokemon) return;
+
+  const onTeam = isOnTeam(currentPokemon.name);
+  const full = !onTeam && team.length >= TEAM_LIMIT;
+
+  button.textContent = onTeam ? "Remove from team" : full ? `Team is full (${TEAM_LIMIT})` : "Add to team";
+  button.classList.toggle("is-on-team", onTeam);
+  button.disabled = full;
+}
+
+function handleTeamActionClick() {
+  if (!currentPokemon) return;
+  toggleTeamMember(currentPokemon);
+}
+
+/* --- Compare -------------------------------------------------------------- */
+
+function openCompare() {
+  if (!currentPokemon) return;
+
+  compareSubjectEl.textContent = formatName(currentPokemon.name);
+  compareErrorEl.hidden = true;
+  compareResultEl.replaceChildren();
+  compareInput.value = "";
+  compareDialog.showModal();
+  compareInput.focus();
+}
+
+function renderComparison(left, right) {
+  const table = createElement("table", "compare-table");
+
+  const head = createElement("thead");
+  const headRow = createElement("tr");
+  headRow.appendChild(createElement("th", "", "Stat"));
+
+  for (const pokemon of [left, right]) {
+    const cell = createElement("th", "compare-name", formatName(pokemon.name));
+    cell.scope = "col";
+    cell.style.setProperty("--type", TYPE_COLORS[pokemon.types[0].type.name] || "#a8a878");
+    headRow.appendChild(cell);
+  }
+
+  head.appendChild(headRow);
+  table.appendChild(head);
+
+  const body = createElement("tbody");
+
+  left.stats.forEach((leftStat, index) => {
+    const rightStat = right.stats[index];
+    const label = STAT_LABELS[leftStat.stat.name] || formatName(leftStat.stat.name);
+
+    const row = createElement("tr");
+    const header = createElement("th", "", label);
+    header.scope = "row";
+    row.appendChild(header);
+
+    const leftCell = createElement("td", "", String(leftStat.base_stat));
+    const rightCell = createElement("td", "", String(rightStat.base_stat));
+
+    // Mark the higher stat. A tie marks neither.
+    if (leftStat.base_stat > rightStat.base_stat) leftCell.classList.add("is-winner");
+    else if (rightStat.base_stat > leftStat.base_stat) rightCell.classList.add("is-winner");
+
+    row.append(leftCell, rightCell);
+    body.appendChild(row);
+  });
+
+  table.appendChild(body);
+
+  const foot = createElement("tfoot");
+  const footRow = createElement("tr");
+  const footHeader = createElement("th", "", "Total");
+  footHeader.scope = "row";
+  footRow.appendChild(footHeader);
+
+  const leftTotal = getStatTotal(left.stats);
+  const rightTotal = getStatTotal(right.stats);
+  const leftTotalCell = createElement("td", "", String(leftTotal));
+  const rightTotalCell = createElement("td", "", String(rightTotal));
+
+  if (leftTotal > rightTotal) leftTotalCell.classList.add("is-winner");
+  else if (rightTotal > leftTotal) rightTotalCell.classList.add("is-winner");
+
+  footRow.append(leftTotalCell, rightTotalCell);
+  foot.appendChild(footRow);
+  table.appendChild(foot);
+
+  compareResultEl.replaceChildren(table);
+}
+
+async function handleCompareSubmit(event) {
+  event.preventDefault();
+
+  if (!currentPokemon) return;
+
+  const query = cleanQuery(compareInput.value);
+
+  if (query === "") {
+    showCompareError("Type a Pokémon name or Pokédex number to compare.");
+    return;
+  }
+
+  if (!isValidQuery(query)) {
+    showCompareError("Use letters, numbers, and hyphens only.");
+    return;
+  }
+
+  compareErrorEl.hidden = true;
+  compareResultEl.replaceChildren(createElement("p", "compare-loading", "Loading..."));
+
+  try {
+    const other = await getPokemon(query);
+    renderComparison(currentPokemon, other);
+  } catch (error) {
+    compareResultEl.replaceChildren();
+    showCompareError(
+      error.message === "not-found"
+        ? "Pokémon not found. Check the name or Pokédex number."
+        : "Could not reach the Pokédex. Try again."
+    );
+  }
+}
+
+function showCompareError(message) {
+  compareErrorEl.textContent = message;
+  compareErrorEl.hidden = false;
+}
+
 /* --- Messages ------------------------------------------------------------- */
 
 function renderError(message) {
@@ -758,6 +1225,7 @@ function renderError(message) {
   currentPokemon = null;
   currentSpecies = null;
   updateNavButtons();
+  compareButton.disabled = true;
 }
 
 function clearError() {
@@ -855,8 +1323,9 @@ function handleAbilityClick(event) {
 
 /* --- Application logic ---------------------------------------------------- */
 
-// One place that turns a query into a card. Search calls this now;
-// Random, Previous, and Next will call it in a later stage.
+// One place that turns a query into a card. Everything that can show a
+// Pokémon comes through here: the search form, Random, Previous and Next,
+// the history chips, the evolution chain, the team dock, and the grid.
 async function loadPokemon(query) {
   clearError();
   setLoading(true);
@@ -876,6 +1345,8 @@ async function loadPokemon(query) {
     currentPokemon = pokemon;
     currentSpecies = species;
     renderPokemon(pokemon, species);
+    updateTeamButton();
+    compareButton.disabled = false;
     addRecentlyViewed(pokemon);
 
     // The evolution chain is a third request and the least important one,
@@ -903,6 +1374,7 @@ async function loadPokemon(query) {
 async function handleSearch(event) {
   // Stop the browser from reloading the page on submit.
   event.preventDefault();
+  closeSuggestions();
 
   const query = cleanQuery(searchInput.value);
 
@@ -952,8 +1424,39 @@ filterInput.addEventListener("input", applyFilter);
 pagePrevButton.addEventListener("click", () => loadExplorePage(currentPage - 1));
 pageNextButton.addEventListener("click", () => loadExplorePage(currentPage + 1));
 
+// Suggestions
+searchInput.addEventListener("input", handleSearchInput);
+searchInput.addEventListener("keydown", handleSearchKeydown);
+suggestionsEl.addEventListener("click", (event) => {
+  const option = event.target.closest(".suggestion");
+  if (option) chooseSuggestion(option.dataset.name);
+});
+
+// A click anywhere outside the search form dismisses the suggestion list.
+document.addEventListener("click", (event) => {
+  if (!searchForm.contains(event.target)) closeSuggestions();
+});
+
+// Team
+displayEl.addEventListener("click", (event) => {
+  if (event.target.closest(".team-action")) handleTeamActionClick();
+});
+teamToggleButton.addEventListener("click", () => setTeamDockOpen(teamDock.hidden));
+teamCloseButton.addEventListener("click", () => setTeamDockOpen(false));
+teamListEl.addEventListener("click", handleTeamListClick);
+
+// Compare
+compareButton.addEventListener("click", openCompare);
+compareCloseButton.addEventListener("click", () => compareDialog.close());
+compareForm.addEventListener("submit", handleCompareSubmit);
+
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") hideAllAbilityTips();
+  if (event.key !== "Escape") return;
+
+  hideAllAbilityTips();
+
+  // The dialog closes itself on Escape, so only the dock needs handling here.
+  if (!teamDock.hidden) setTeamDockOpen(false);
 });
 
 /* --- Start up ------------------------------------------------------------- */
@@ -963,3 +1466,7 @@ recentlyViewed = loadRecentlyViewed();
 renderRecentlyViewed();
 updateNavButtons();
 updatePager(false);
+
+// The team survives a reload too.
+team = loadTeam();
+renderTeam();
