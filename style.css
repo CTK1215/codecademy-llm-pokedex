@@ -1133,3 +1133,78 @@ main {
     transform: none;
   }
 }
+
+/* ==========================================================================
+   Stage 5: the Explore grid
+   ========================================================================== */
+
+/* Each card carries its own --type, the same single-variable idea the detail
+   card uses, so a page of the grid reads as a wall of type colors. */
+.grid-card {
+  --type: #a8a878;
+  --type-soft: color-mix(in srgb, var(--type) 18%, transparent);
+  --type-glow: color-mix(in srgb, var(--type) 40%, transparent);
+  --type-light: color-mix(in srgb, var(--type) 60%, white);
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--type) 35%, var(--border));
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, var(--type-soft), transparent 60%), var(--surface);
+  color: var(--text);
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.grid-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px var(--type-glow);
+}
+
+.grid-image {
+  width: 88px;
+  height: 88px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.grid-id {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.grid-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.grid-types {
+  color: var(--type-light);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 599px) {
+  .grid-image {
+    width: 72px;
+    height: 72px;
+  }
+
+  .grid-name {
+    font-size: 0.85rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .grid-card:hover {
+    transform: none;
+  }
+}

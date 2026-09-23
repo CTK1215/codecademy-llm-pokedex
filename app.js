@@ -4,6 +4,7 @@
    handle errors and the loading state.
    Stage 3: type palette, animated sprite, skyline stats, ability tooltips.
    Stage 4: random, previous / next, recently viewed, evolution chain.
+   Stage 5: the Explore view, paginated grid and client-side filter.
    ========================================================================== */
 
 const API_BASE = "https://pokeapi.co/api/v2";
@@ -19,6 +20,11 @@ const ARTWORK_BASE =
 
 const RECENT_KEY = "pokedex-recent";
 const RECENT_LIMIT = 8;
+
+// 24 divides evenly by the grid's 2, 3, and 4 column layouts, so no page ends
+// with an orphan row on any screen size.
+const PAGE_SIZE = 24;
+const TOTAL_PAGES = Math.ceil(MAX_POKEMON_ID / PAGE_SIZE);
 
 // Highest base stat any Pokémon has. Used for the meter's aria-valuemax.
 const MAX_BASE_STAT = 255;
@@ -77,6 +83,18 @@ const evolutionChainEl = document.getElementById("evolution-chain");
 const recentSection = document.getElementById("recent");
 const recentListEl = document.getElementById("recent-list");
 
+const mainEl = document.getElementById("main");
+const viewTabsEl = document.querySelector(".view-tabs");
+const searchView = document.getElementById("search-view");
+const exploreView = document.getElementById("explore-view");
+
+const filterInput = document.getElementById("filter-input");
+const exploreStatusEl = document.getElementById("explore-status");
+const gridEl = document.getElementById("grid");
+const pagePrevButton = document.getElementById("page-prev");
+const pageNextButton = document.getElementById("page-next");
+const pageIndicatorEl = document.getElementById("page-indicator");
+
 // A copy of the empty state from the HTML, so we can put it back after an error.
 const emptyStateTemplate = displayEl.firstElementChild.cloneNode(true);
 
@@ -95,6 +113,22 @@ const abilityCache = new Map();
 
 // Recently viewed Pokémon, newest first: [{ name, id }].
 let recentlyViewed = [];
+
+/* Explore view state. */
+
+// Zero-based index of the page on screen.
+let currentPage = 0;
+
+// Full detail objects for that page. The filter works on this array, which is
+// the whole point: filtering is not another search, it is a pass over data
+// the app already holds.
+let pageEntries = [];
+
+// Pages already fetched, keyed by page index, so paging back is instant.
+const pageCache = new Map();
+
+// The Explore grid loads on first visit, not on page load.
+let exploreLoaded = false;
 
 /* --- Small helpers -------------------------------------------------------- */
 
@@ -171,6 +205,12 @@ async function getAbility(url) {
 // The species record points at its evolution chain by URL, same as abilities.
 async function getEvolutionChain(url) {
   return fetchJson(url);
+}
+
+// The list endpoint pages through the Pokédex. It returns names and URLs only,
+// with no sprite or type, so the grid still has to fetch each entry's detail.
+async function getPokemonList(limit, offset) {
+  return fetchJson(`${API_BASE}/pokemon?limit=${limit}&offset=${offset}`);
 }
 
 /* --- Data extraction ------------------------------------------------------ */
@@ -558,6 +598,154 @@ function handleStep(offset) {
   loadPokemon(String(next));
 }
 
+/* --- Views ---------------------------------------------------------------- */
+
+function setView(view) {
+  mainEl.dataset.view = view;
+  searchView.hidden = view !== "search";
+  exploreView.hidden = view !== "explore";
+
+  for (const tab of viewTabsEl.querySelectorAll(".tab")) {
+    const isActive = tab.dataset.view === view;
+    tab.classList.toggle("is-active", isActive);
+    tab.setAttribute("aria-pressed", String(isActive));
+  }
+
+  // The grid costs 25 requests, so it waits until someone actually opens it.
+  if (view === "explore" && !exploreLoaded) {
+    exploreLoaded = true;
+    loadExplorePage(0);
+  }
+}
+
+/* --- Explore grid --------------------------------------------------------- */
+
+function renderGridCard(pokemon) {
+  const primaryType = pokemon.types[0].type.name;
+
+  const card = createElement("button", `grid-card type-${primaryType}`);
+  card.type = "button";
+  card.dataset.name = pokemon.name;
+  card.style.setProperty("--type", TYPE_COLORS[primaryType] || "#a8a878");
+
+  // The small sprite is about half a kilobyte against 200KB for the artwork.
+  // At 24 per page that is the difference between 13KB and 5MB.
+  const spriteUrl = pokemon.sprites.front_default || `${ARTWORK_BASE}/${pokemon.id}.png`;
+  const image = createElement("img", "grid-image");
+  image.src = spriteUrl;
+  image.alt = "";
+  image.loading = "lazy";
+
+  card.appendChild(image);
+  card.appendChild(createElement("span", "grid-id", formatId(pokemon.id)));
+  card.appendChild(createElement("span", "grid-name", formatName(pokemon.name)));
+  card.appendChild(
+    createElement("span", "grid-types", pokemon.types.map((entry) => formatName(entry.type.name)).join(" / "))
+  );
+
+  return card;
+}
+
+function renderGrid(entries) {
+  if (entries.length === 0) {
+    gridEl.replaceChildren();
+    return;
+  }
+
+  gridEl.replaceChildren(...entries.map(renderGridCard));
+}
+
+// Filtering never touches the network. It runs over pageEntries, which the app
+// already fetched, which is why it can respond on every keystroke.
+function applyFilter() {
+  const query = filterInput.value.trim().toLowerCase();
+
+  const matches =
+    query === ""
+      ? pageEntries
+      : pageEntries.filter(
+          (pokemon) =>
+            pokemon.name.includes(query) ||
+            pokemon.types.some((entry) => entry.type.name.includes(query))
+        );
+
+  renderGrid(matches);
+
+  if (pageEntries.length === 0) {
+    exploreStatusEl.textContent = "";
+  } else if (matches.length === 0) {
+    exploreStatusEl.textContent = `Nothing on page ${currentPage + 1} matches "${filterInput.value.trim()}".`;
+  } else if (query === "") {
+    exploreStatusEl.textContent = `${pageEntries.length} Pokémon on page ${currentPage + 1}.`;
+  } else {
+    exploreStatusEl.textContent = `${matches.length} of ${pageEntries.length} match on page ${currentPage + 1}.`;
+  }
+}
+
+function updatePager(isLoading) {
+  pagePrevButton.disabled = isLoading || currentPage === 0;
+  pageNextButton.disabled = isLoading || currentPage >= TOTAL_PAGES - 1;
+  pageIndicatorEl.textContent = `Page ${currentPage + 1} of ${TOTAL_PAGES}`;
+}
+
+async function loadExplorePage(page) {
+  // Guard clause: ignore anything outside the Pokédex.
+  if (page < 0 || page >= TOTAL_PAGES) return;
+
+  currentPage = page;
+
+  if (pageCache.has(page)) {
+    pageEntries = pageCache.get(page);
+    updatePager(false);
+    applyFilter();
+    return;
+  }
+
+  gridEl.replaceChildren();
+  exploreStatusEl.textContent = `Loading page ${page + 1}...`;
+  gridEl.setAttribute("aria-busy", "true");
+  updatePager(true);
+
+  try {
+    const offset = page * PAGE_SIZE;
+
+    // The final page is short, because the Pokédex ends at 1025 and the list
+    // endpoint would otherwise run on into the alternate forms.
+    const limit = Math.min(PAGE_SIZE, MAX_POKEMON_ID - offset);
+    const list = await getPokemonList(limit, offset);
+
+    // One request per entry, all in flight at once. Sequential awaits here
+    // would turn a quarter of a second into several seconds.
+    pageEntries = await Promise.all(list.results.map((entry) => fetchJson(entry.url)));
+    pageCache.set(page, pageEntries);
+
+    applyFilter();
+  } catch {
+    pageEntries = [];
+    gridEl.replaceChildren();
+    exploreStatusEl.textContent = "Could not load this page. Check your connection and try again.";
+  } finally {
+    gridEl.setAttribute("aria-busy", "false");
+    updatePager(false);
+  }
+}
+
+// A grid card opens the full card, which lives in the Search view.
+function handleGridClick(event) {
+  const card = event.target.closest(".grid-card");
+  if (!card) return;
+
+  setView("search");
+  loadPokemon(card.dataset.name);
+}
+
+function handleTabClick(event) {
+  const tab = event.target.closest(".tab");
+  if (!tab) return;
+
+  setView(tab.dataset.view);
+}
+
 /* --- Messages ------------------------------------------------------------- */
 
 function renderError(message) {
@@ -758,6 +946,12 @@ displayEl.addEventListener("click", handleAbilityClick);
 evolutionChainEl.addEventListener("click", handleNameButtonClick);
 recentListEl.addEventListener("click", handleNameButtonClick);
 
+viewTabsEl.addEventListener("click", handleTabClick);
+gridEl.addEventListener("click", handleGridClick);
+filterInput.addEventListener("input", applyFilter);
+pagePrevButton.addEventListener("click", () => loadExplorePage(currentPage - 1));
+pageNextButton.addEventListener("click", () => loadExplorePage(currentPage + 1));
+
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") hideAllAbilityTips();
 });
@@ -768,3 +962,4 @@ document.addEventListener("keydown", (event) => {
 recentlyViewed = loadRecentlyViewed();
 renderRecentlyViewed();
 updateNavButtons();
+updatePager(false);
