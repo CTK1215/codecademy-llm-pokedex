@@ -3,9 +3,22 @@
    Stage 2: capture the search, fetch from PokéAPI, render the card,
    handle errors and the loading state.
    Stage 3: type palette, animated sprite, skyline stats, ability tooltips.
+   Stage 4: random, previous / next, recently viewed, evolution chain.
    ========================================================================== */
 
 const API_BASE = "https://pokeapi.co/api/v2";
+
+// The last Pokémon in the National Pokédex (Pecharunt). Anything above this id
+// is an alternate form, not a numbered species.
+const MAX_POKEMON_ID = 1025;
+
+// Artwork lives at a predictable URL keyed by Pokédex number. Building the URL
+// saves one request per evolution (Eevee's chain alone has nine members).
+const ARTWORK_BASE =
+  "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork";
+
+const RECENT_KEY = "pokedex-recent";
+const RECENT_LIMIT = 8;
 
 // Highest base stat any Pokémon has. Used for the meter's aria-valuemax.
 const MAX_BASE_STAT = 255;
@@ -55,17 +68,33 @@ const statusEl = document.getElementById("status");
 const errorEl = document.getElementById("error");
 const displayEl = document.getElementById("pokemon-display");
 
+const randomButton = document.getElementById("random-button");
+const prevButton = document.getElementById("prev-button");
+const nextButton = document.getElementById("next-button");
+
+const evolutionSection = document.getElementById("evolution");
+const evolutionChainEl = document.getElementById("evolution-chain");
+const recentSection = document.getElementById("recent");
+const recentListEl = document.getElementById("recent-list");
+
 // A copy of the empty state from the HTML, so we can put it back after an error.
 const emptyStateTemplate = displayEl.firstElementChild.cloneNode(true);
 
 /* --- Application state ---------------------------------------------------- */
 
-// The Pokémon currently on screen. Later stages (Previous / Next, Compare) read this.
+// The Pokémon currently on screen. Previous / Next and Compare read this.
 let currentPokemon = null;
+
+// Its species record, which carries the Pokédex number used for stepping.
+// A form like deoxys-attack has id 10001 but species id 386.
+let currentSpecies = null;
 
 // Ability descriptions already fetched, keyed by ability URL. Hovering the same
 // ability twice should not hit the API twice.
 const abilityCache = new Map();
+
+// Recently viewed Pokémon, newest first: [{ name, id }].
+let recentlyViewed = [];
 
 /* --- Small helpers -------------------------------------------------------- */
 
@@ -92,6 +121,11 @@ function formatId(id) {
 // Flavor text comes with line-break and form-feed characters from the games.
 function cleanFlavorText(text) {
   return text.replace(/[\n\f\r]+/g, " ").replace(/\s+/g, " ").replace(/POKéMON/g, "Pokémon").trim();
+}
+
+// Resource URLs end in the record's id, like ".../pokemon-species/133/".
+function getIdFromUrl(url) {
+  return Number(url.split("/").filter(Boolean).pop());
 }
 
 // Creates an element, optionally with a class and text, in one call.
@@ -132,6 +166,11 @@ async function getAbility(url) {
   const ability = await fetchJson(url);
   abilityCache.set(url, ability);
   return ability;
+}
+
+// The species record points at its evolution chain by URL, same as abilities.
+async function getEvolutionChain(url) {
+  return fetchJson(url);
 }
 
 /* --- Data extraction ------------------------------------------------------ */
@@ -342,13 +381,195 @@ function renderStats(stats) {
   return wrap;
 }
 
+/* --- Evolution chain ------------------------------------------------------ */
+
+// The API nests the chain: each node holds the species plus an evolves_to
+// array of the nodes it becomes. Walking it one level at a time turns that
+// nesting into a flat list of stages, which is what the UI draws.
+// Eevee is one stage of 1 and one stage of 8; Wurmple branches in the middle.
+function flattenEvolutionChain(chain) {
+  const stages = [];
+  let level = [chain];
+
+  while (level.length > 0) {
+    stages.push(
+      level.map((node) => ({
+        name: node.species.name,
+        id: getIdFromUrl(node.species.url),
+      }))
+    );
+
+    level = level.flatMap((node) => node.evolves_to);
+  }
+
+  return stages;
+}
+
+function renderEvolution(chain) {
+  const stages = flattenEvolutionChain(chain);
+
+  // A Pokémon that never evolves is a single stage. There is nothing to show.
+  if (stages.length < 2) {
+    evolutionSection.hidden = true;
+    evolutionChainEl.replaceChildren();
+    return;
+  }
+
+  const parts = [];
+
+  stages.forEach((stage, index) => {
+    const group = createElement("div", "evolution-stage");
+
+    for (const member of stage) {
+      const button = createElement("button", "evolution-member");
+      button.type = "button";
+      button.dataset.name = member.name;
+
+      const image = createElement("img", "evolution-image");
+      image.src = `${ARTWORK_BASE}/${member.id}.png`;
+      image.alt = "";
+      image.loading = "lazy";
+
+      button.appendChild(image);
+      button.appendChild(createElement("span", "evolution-name", formatName(member.name)));
+
+      // Mark the Pokémon already on screen instead of linking back to itself.
+      if (currentSpecies && member.id === currentSpecies.id) {
+        button.classList.add("is-current");
+        button.disabled = true;
+        button.setAttribute("aria-current", "true");
+      }
+
+      group.appendChild(button);
+    }
+
+    // Every stage after the first is wrapped together with the arrow that
+    // points at it. Keeping the pair in one box means a narrow screen can
+    // never wrap an arrow onto the end of a line with nothing after it.
+    if (index === 0) {
+      parts.push(group);
+      return;
+    }
+
+    const step = createElement("div", "evolution-step");
+    const arrow = createElement("span", "evolution-arrow", "→");
+    arrow.setAttribute("aria-hidden", "true");
+    step.appendChild(arrow);
+    step.appendChild(group);
+    parts.push(step);
+  });
+
+  evolutionChainEl.replaceChildren(...parts);
+  evolutionSection.hidden = false;
+}
+
+function hideEvolution() {
+  evolutionSection.hidden = true;
+  evolutionChainEl.replaceChildren();
+}
+
+/* --- Recently viewed ------------------------------------------------------ */
+
+// localStorage can throw (private windows, blocked site data) and can hold
+// anything, so every read is guarded and re-validated.
+function loadRecentlyViewed() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(RECENT_KEY));
+    if (!Array.isArray(stored)) return [];
+
+    return stored
+      .filter((entry) => entry && typeof entry.name === "string" && Number.isFinite(entry.id))
+      .slice(0, RECENT_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentlyViewed() {
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(recentlyViewed));
+  } catch {
+    // Not being able to remember the history is not worth interrupting a search.
+  }
+}
+
+function addRecentlyViewed(pokemon) {
+  // Drop any earlier visit so the newest one moves to the front.
+  recentlyViewed = recentlyViewed.filter((entry) => entry.name !== pokemon.name);
+  recentlyViewed.unshift({ name: pokemon.name, id: pokemon.id });
+  recentlyViewed = recentlyViewed.slice(0, RECENT_LIMIT);
+
+  saveRecentlyViewed();
+  renderRecentlyViewed();
+}
+
+function renderRecentlyViewed() {
+  if (recentlyViewed.length === 0) {
+    recentSection.hidden = true;
+    recentListEl.replaceChildren();
+    return;
+  }
+
+  const items = recentlyViewed.map((entry) => {
+    const item = createElement("li");
+    const chip = createElement("button", "chip", formatName(entry.name));
+    chip.type = "button";
+    chip.dataset.name = entry.name;
+
+    if (currentPokemon && currentPokemon.name === entry.name) {
+      chip.classList.add("is-current");
+    }
+
+    item.appendChild(chip);
+    return item;
+  });
+
+  recentListEl.replaceChildren(...items);
+  recentSection.hidden = false;
+}
+
+/* --- Navigation controls -------------------------------------------------- */
+
+// Stepping walks the Pokédex, so it uses the species number rather than the
+// Pokémon id, which is in the 10000s for alternate forms.
+function getCurrentDexNumber() {
+  if (currentSpecies && currentSpecies.id <= MAX_POKEMON_ID) return currentSpecies.id;
+  if (currentPokemon && currentPokemon.id <= MAX_POKEMON_ID) return currentPokemon.id;
+  return null;
+}
+
+function updateNavButtons() {
+  const canStep = getCurrentDexNumber() !== null;
+  prevButton.disabled = !canStep;
+  nextButton.disabled = !canStep;
+}
+
+function handleRandom() {
+  const id = Math.floor(Math.random() * MAX_POKEMON_ID) + 1;
+  loadPokemon(String(id));
+}
+
+// The Pokédex wraps at both ends: Previous from Bulbasaur lands on Pecharunt.
+function handleStep(offset) {
+  const current = getCurrentDexNumber();
+  if (current === null) return;
+
+  const next = ((current - 1 + offset + MAX_POKEMON_ID) % MAX_POKEMON_ID) + 1;
+  loadPokemon(String(next));
+}
+
+/* --- Messages ------------------------------------------------------------- */
+
 function renderError(message) {
   errorEl.textContent = message;
   errorEl.hidden = false;
 
   // Never leave the previous Pokémon on screen next to an error.
   displayEl.replaceChildren(emptyStateTemplate.cloneNode(true));
+  hideEvolution();
   currentPokemon = null;
+  currentSpecies = null;
+  updateNavButtons();
 }
 
 function clearError() {
@@ -360,6 +581,16 @@ function setLoading(isLoading) {
   statusEl.textContent = isLoading ? "Searching Pokédex..." : "";
   displayEl.setAttribute("aria-busy", String(isLoading));
   searchButton.disabled = isLoading;
+  randomButton.disabled = isLoading;
+
+  // While a request is in flight, stepping is off for everyone. When it ends,
+  // whether stepping is available depends on what actually loaded.
+  if (isLoading) {
+    prevButton.disabled = true;
+    nextButton.disabled = true;
+  } else {
+    updateNavButtons();
+  }
 }
 
 /* --- Ability tooltip ------------------------------------------------------ */
@@ -455,7 +686,21 @@ async function loadPokemon(query) {
     }
 
     currentPokemon = pokemon;
+    currentSpecies = species;
     renderPokemon(pokemon, species);
+    addRecentlyViewed(pokemon);
+
+    // The evolution chain is a third request and the least important one,
+    // so a failure here hides the section instead of failing the search.
+    if (species) {
+      try {
+        renderEvolution((await getEvolutionChain(species.evolution_chain.url)).chain);
+      } catch {
+        hideEvolution();
+      }
+    } else {
+      hideEvolution();
+    }
   } catch (error) {
     if (error.message === "not-found") {
       renderError("Pokémon not found. Check the name or Pokédex number and try again.");
@@ -487,9 +732,22 @@ async function handleSearch(event) {
   await loadPokemon(query);
 }
 
+// Evolution members and history chips both carry the name to load in a data
+// attribute, so one handler serves both lists.
+function handleNameButtonClick(event) {
+  const button = event.target.closest("[data-name]");
+  if (!button || button.disabled) return;
+
+  loadPokemon(button.dataset.name);
+}
+
 /* --- Wire up events ------------------------------------------------------- */
 
 searchForm.addEventListener("submit", handleSearch);
+
+randomButton.addEventListener("click", handleRandom);
+prevButton.addEventListener("click", () => handleStep(-1));
+nextButton.addEventListener("click", () => handleStep(1));
 
 displayEl.addEventListener("mouseover", handleAbilityHover);
 displayEl.addEventListener("mouseout", handleAbilityLeave);
@@ -497,6 +755,16 @@ displayEl.addEventListener("focusin", handleAbilityHover);
 displayEl.addEventListener("focusout", handleAbilityLeave);
 displayEl.addEventListener("click", handleAbilityClick);
 
+evolutionChainEl.addEventListener("click", handleNameButtonClick);
+recentListEl.addEventListener("click", handleNameButtonClick);
+
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") hideAllAbilityTips();
 });
+
+/* --- Start up ------------------------------------------------------------- */
+
+// The history survives a reload, so show it before the first search.
+recentlyViewed = loadRecentlyViewed();
+renderRecentlyViewed();
+updateNavButtons();

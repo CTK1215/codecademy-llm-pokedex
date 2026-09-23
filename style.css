@@ -1000,3 +1000,136 @@ main {
     animation: none;
   }
 }
+
+/* ==========================================================================
+   Stage 4: evolution chain and recently viewed
+   ========================================================================== */
+
+.evolution-chain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: rgba(28, 33, 48, 0.5);
+}
+
+/* Each step after the first pairs an arrow with the stage it points at, so a
+   wrapping row can never strand an arrow at the end of a line. */
+.evolution-step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* One stage is one step of the chain. Eevee's second stage holds eight
+   members, so a stage wraps inside itself rather than stretching the row. */
+.evolution-stage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  justify-content: center;
+  gap: var(--space-2);
+  max-width: 420px;
+}
+
+.evolution-arrow {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.evolution-member {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  width: 104px;
+  padding: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.evolution-member:hover:not(:disabled) {
+  background: var(--surface-2);
+  transform: translateY(-2px);
+}
+
+/* The Pokémon already on screen is shown but not clickable. */
+.evolution-member.is-current {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  cursor: default;
+  opacity: 1;
+}
+
+.evolution-image {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+}
+
+.evolution-name {
+  text-align: center;
+  line-height: 1.2;
+}
+
+/* --- Recently viewed chips ------------------------------------------------ */
+
+.chip {
+  min-height: 40px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.chip:hover {
+  background: var(--surface-2);
+  border-color: var(--text-muted);
+}
+
+.chip.is-current {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+@media (max-width: 599px) {
+  .evolution-chain {
+    padding: var(--space-3);
+    gap: var(--space-2);
+  }
+
+  .evolution-member {
+    width: 86px;
+  }
+
+  .evolution-image {
+    width: 60px;
+    height: 60px;
+  }
+
+  .evolution-arrow {
+    font-size: 1.2rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .evolution-member:hover:not(:disabled) {
+    transform: none;
+  }
+}
